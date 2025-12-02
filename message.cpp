@@ -1,10 +1,24 @@
+/*
+ * message.cpp
+ * 
+ * Implémentation des méthodes de la structure Message.
+ * Gère la construction, validation, sérialisation et affichage des messages.
+ * 
+ * Projet R3.05 - Programmation Système
+ */
+
 #include "message.h"
 #include <sstream>
 #include <iomanip>
 
-/**
+/* ========================================================================== */
+/*                            CONSTRUCTEURS                                   */
+/* ========================================================================== */
+
+/*
  * Constructeur par défaut.
- * Initialise tous les champs à 0 pour éviter les données parasites.
+ * Initialise tous les champs à zéro pour éviter les données non initialisées.
+ * memset garantit que les tableaux de char sont remplis de '\0'.
  */
 Message::Message() : isRead(false), receivedAt(0) {
     memset(from, 0, MAX_FROM_SIZE);
@@ -13,35 +27,44 @@ Message::Message() : isRead(false), receivedAt(0) {
     memset(body, 0, MAX_BODY_SIZE);
 }
 
-/**
+/*
  * Constructeur avec paramètres.
- * Vérifie les tailles avant de copier les données.
- * Lève une exception si une taille est dépassée.
+ * Valide les tailles des champs avant copie.
+ * Lève une exception std::invalid_argument si un champ est trop long.
  */
 Message::Message(const std::string& fromStr, const std::string& toStr, 
                  const std::string& subjectStr, const std::string& bodyStr) : isRead(false), receivedAt(0) {
-    // Vérification des contraintes de taille
+    
+    /* Validation des contraintes de taille */
     validateField(fromStr, MAX_FROM_SIZE - 1, "From");
     validateField(toStr, MAX_TO_SIZE - 1, "To");
     validateField(subjectStr, MAX_SUBJECT_SIZE - 1, "Subject");
     validateField(bodyStr, MAX_BODY_SIZE - 1, "Body");
     
-    // Copie sécurisée des chaînes (strncpy ne met pas toujours le \0 final si taille atteinte)
+    /* 
+     * Copie sécurisée avec strncpy.
+     * Note : strncpy ne garantit pas le '\0' final si la chaîne source
+     * atteint exactement la taille limite, d'où l'ajout explicite.
+     */
     strncpy(from, fromStr.c_str(), MAX_FROM_SIZE - 1);
     strncpy(to, toStr.c_str(), MAX_TO_SIZE - 1);
     strncpy(subject, subjectStr.c_str(), MAX_SUBJECT_SIZE - 1);
     strncpy(body, bodyStr.c_str(), MAX_BODY_SIZE - 1);
     
-    // Assurance que les chaînes sont bien terminées par \0
+    /* Garantie du terminateur nul */
     from[MAX_FROM_SIZE - 1] = '\0';
     to[MAX_TO_SIZE - 1] = '\0';
     subject[MAX_SUBJECT_SIZE - 1] = '\0';
     body[MAX_BODY_SIZE - 1] = '\0';
 }
 
-/**
- * Valide la taille d'un champ.
- * Lève std::invalid_argument si la taille est excessive.
+/* ========================================================================== */
+/*                             VALIDATION                                     */
+/* ========================================================================== */
+
+/*
+ * Valide qu'un champ ne dépasse pas sa taille maximale.
+ * Lève std::invalid_argument avec un message explicite en cas d'erreur.
  */
 void Message::validateField(const std::string& field, size_t maxSize, const std::string& fieldName) {
     if (field.length() > maxSize) {
@@ -49,18 +72,25 @@ void Message::validateField(const std::string& field, size_t maxSize, const std:
     }
 }
 
-/**
- * Sérialise l'objet Message en un buffer d'octets.
- * Copie brute de la mémoire de la structure.
+/* ========================================================================== */
+/*                     SÉRIALISATION / DÉSÉRIALISATION                        */
+/* ========================================================================== */
+
+/*
+ * Sérialise la structure Message en un tableau d'octets.
+ * Utilise memcpy pour une copie binaire directe de la structure.
+ * 
+ * Cette approche fonctionne car Message est une structure POD
+ * (Plain Old Data) avec des champs de taille fixe.
  */
 void Message::serialize(char* buffer, size_t& size) const {
     size = sizeof(Message);
     memcpy(buffer, this, size);
 }
 
-/**
- * Désérialise un buffer d'octets en objet Message.
- * Vérifie que la taille correspond bien à la structure attendue.
+/*
+ * Désérialise un tableau d'octets en structure Message.
+ * Vérifie que la taille reçue correspond exactement à sizeof(Message).
  */
 Message Message::deserialize(const char* buffer, size_t size) {
     if (size != sizeof(Message)) {
@@ -71,9 +101,14 @@ Message Message::deserialize(const char* buffer, size_t size) {
     return msg;
 }
 
-/**
- * Retourne une représentation textuelle complète du message.
- * Utilisé pour la lecture détaillée.
+/* ========================================================================== */
+/*                            AFFICHAGE                                       */
+/* ========================================================================== */
+
+/*
+ * Retourne une représentation complète du message.
+ * Utilisé pour la lecture détaillée d'un message.
+ * Affiche l'horodatage si celui-ci est défini (non nul).
  */
 std::string Message::toString() const {
     std::ostringstream oss;
@@ -82,7 +117,7 @@ std::string Message::toString() const {
         << "À: " << to << "\n"
         << "Sujet: " << subject << "\n";
     
-    // Afficher le timestamp si défini
+    /* Affichage conditionnel de l'horodatage */
     if (receivedAt != 0) {
         oss << "Reçu le: " << std::put_time(std::localtime(&receivedAt), "%Y-%m-%d %H:%M:%S") << "\n";
     }
@@ -93,9 +128,10 @@ std::string Message::toString() const {
     return oss.str();
 }
 
-/**
+/*
  * Retourne une représentation résumée du message.
  * Utilisé pour l'affichage des listes de messages.
+ * Format compact : [état] De: expéditeur | Sujet: sujet
  */
 std::string Message::toShortString() const {
     std::ostringstream oss;

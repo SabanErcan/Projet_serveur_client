@@ -1,3 +1,11 @@
+/*
+ * socket_utils.cpp
+ * 
+ * Implémentation des fonctions utilitaires pour les sockets TCP.
+ * 
+ * Projet R3.05 - Programmation Système
+ */
+
 #include "socket_utils.h"
 #include <iostream>
 #include <cstring>
@@ -9,14 +17,18 @@
     #include <fcntl.h>
 #endif
 
-/**
- * Initialisation de Winsock pour Windows.
- * Doit être appelé au début du programme.
+/* ========================================================================== */
+/*                      INITIALISATION / NETTOYAGE                            */
+/* ========================================================================== */
+
+/*
+ * Initialise la bibliothèque Winsock sous Windows.
+ * Demande la version 2.2 qui supporte TCP/IP.
+ * Ne fait rien sous Linux (sockets disponibles nativement).
  */
 void SocketUtils::initializeWinsock() {
 #ifdef _WIN32
     WSADATA wsaData;
-    // Demande la version 2.2 de Winsock
     int result = WSAStartup(MAKEWORD(2, 2), &wsaData);
     if (result != 0) {
         throw std::runtime_error("WSAStartup échoué avec erreur: " + std::to_string(result));
@@ -24,9 +36,9 @@ void SocketUtils::initializeWinsock() {
 #endif
 }
 
-/**
- * Nettoyage de Winsock.
- * À appeler à la fin du programme.
+/*
+ * Libère les ressources Winsock sous Windows.
+ * À appeler avant la fin du programme.
  */
 void SocketUtils::cleanupWinsock() {
 #ifdef _WIN32
@@ -34,10 +46,20 @@ void SocketUtils::cleanupWinsock() {
 #endif
 }
 
-/**
- * Création d'un socket TCP standard.
- * AF_INET : IPv4
- * SOCK_STREAM : TCP
+/* ========================================================================== */
+/*                      CRÉATION / FERMETURE DE SOCKET                        */
+/* ========================================================================== */
+
+/*
+ * Crée un socket TCP/IPv4.
+ * 
+ * Paramètres socket() :
+ *   - AF_INET     : Famille d'adresses IPv4
+ *   - SOCK_STREAM : Socket orienté connexion (TCP)
+ *   - IPPROTO_TCP : Protocole TCP explicite
+ * 
+ * Active l'option SO_REUSEADDR pour pouvoir réutiliser le port
+ * immédiatement après fermeture (évite "Address already in use").
  */
 SOCKET SocketUtils::createTCPSocket() {
     SOCKET sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -45,15 +67,15 @@ SOCKET SocketUtils::createTCPSocket() {
         throw std::runtime_error("Échec de création du socket");
     }
     
-    // Permet de réutiliser l'adresse/port immédiatement après arrêt (évite "Address already in use")
     int opt = 1;
     setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, (const char*)&opt, sizeof(opt));
     
     return sock;
 }
 
-/**
- * Fermeture portable du socket.
+/*
+ * Ferme un socket de manière portable.
+ * Utilise closesocket() sous Windows, close() sous Linux.
  */
 void SocketUtils::closeSocket(SOCKET sock) {
     if (sock != INVALID_SOCKET) {
@@ -61,24 +83,35 @@ void SocketUtils::closeSocket(SOCKET sock) {
     }
 }
 
-/**
- * Bind le socket sur toutes les interfaces locales (INADDR_ANY) et le port spécifié.
+/* ========================================================================== */
+/*                           CÔTÉ SERVEUR                                     */
+/* ========================================================================== */
+
+/*
+ * Associe le socket à une adresse locale (bind).
+ * 
+ * Configuration sockaddr_in :
+ *   - sin_family      : AF_INET (IPv4)
+ *   - sin_addr.s_addr : INADDR_ANY (écoute sur toutes les interfaces)
+ *   - sin_port        : Port converti en network byte order (htons)
  */
 void SocketUtils::bindSocket(SOCKET sock, int port) {
     struct sockaddr_in serverAddr;
     memset(&serverAddr, 0, sizeof(serverAddr));
     serverAddr.sin_family = AF_INET;
-    serverAddr.sin_addr.s_addr = INADDR_ANY; // Écoute sur toutes les interfaces
-    serverAddr.sin_port = htons(port);       // Conversion Host TO Network Short
+    serverAddr.sin_addr.s_addr = INADDR_ANY;
+    serverAddr.sin_port = htons(port);
     
     if (bind(sock, (struct sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR) {
         throw std::runtime_error("Échec du bind sur le port " + std::to_string(port));
     }
 }
 
-/**
- * Passe le socket en mode écoute.
- * backlog : nombre max de connexions en attente dans la file système.
+/*
+ * Passe le socket en mode écoute passive.
+ * 
+ * Le paramètre backlog définit la taille de la file d'attente
+ * des connexions en attente d'être acceptées.
  */
 void SocketUtils::listenSocket(SOCKET sock, int backlog) {
     if (listen(sock, backlog) == SOCKET_ERROR) {
@@ -86,10 +119,11 @@ void SocketUtils::listenSocket(SOCKET sock, int backlog) {
     }
 }
 
-/**
- * Accepte une nouvelle connexion client.
- * Bloquant par défaut.
- * Remplit clientIP avec l'adresse IP du client connecté.
+/*
+ * Accepte une connexion entrante (bloquant).
+ * 
+ * Retourne le socket client créé pour cette connexion.
+ * Récupère l'adresse IP du client via inet_ntoa().
  */
 SOCKET SocketUtils::acceptConnection(SOCKET serverSocket, std::string& clientIP) {
     struct sockaddr_in clientAddr;
@@ -104,8 +138,16 @@ SOCKET SocketUtils::acceptConnection(SOCKET serverSocket, std::string& clientIP)
     return clientSocket;
 }
 
-/**
+/* ========================================================================== */
+/*                            CÔTÉ CLIENT                                     */
+/* ========================================================================== */
+
+/*
  * Connecte le socket à un serveur distant.
+ * 
+ * Conversion de l'adresse IP :
+ *   - Windows : inet_addr() (IPv4 uniquement)
+ *   - Linux   : inet_pton() (supporte IPv4 et IPv6)
  */
 void SocketUtils::connectToServer(SOCKET sock, const std::string& serverIP, int port) {
     struct sockaddr_in serverAddr;
@@ -126,9 +168,16 @@ void SocketUtils::connectToServer(SOCKET sock, const std::string& serverIP, int 
     }
 }
 
-/**
+/* ========================================================================== */
+/*                      ENVOI / RÉCEPTION DE DONNÉES                          */
+/* ========================================================================== */
+
+/*
  * Envoie des données sur le socket.
- * Gère l'envoi partiel en bouclant jusqu'à ce que tout soit envoyé.
+ * 
+ * Gère l'envoi partiel en bouclant jusqu'à ce que toutes
+ * les données soient envoyées. C'est nécessaire car send()
+ * peut ne pas envoyer tous les octets en une seule fois.
  */
 void SocketUtils::sendData(SOCKET sock, const char* data, size_t size) {
     size_t totalSent = 0;
@@ -141,9 +190,9 @@ void SocketUtils::sendData(SOCKET sock, const char* data, size_t size) {
     }
 }
 
-/**
- * Reçoit des données du socket.
- * Retourne le nombre d'octets lus.
+/*
+ * Reçoit des données du socket (appel bloquant).
+ * Retourne le nombre d'octets effectivement reçus.
  */
 ssize_t SocketUtils::receiveData(SOCKET sock, char* buffer, size_t size) {
     ssize_t received = recv(sock, buffer, size, 0);
@@ -153,10 +202,11 @@ ssize_t SocketUtils::receiveData(SOCKET sock, char* buffer, size_t size) {
     return received;
 }
 
-/**
- * Utilise select() pour vérifier si des données sont disponibles en lecture
- * sans bloquer indéfiniment.
- * timeoutMs : temps d'attente max en millisecondes.
+/*
+ * Vérifie si des données sont disponibles en lecture (non-bloquant).
+ * 
+ * Utilise select() avec un timeout pour éviter de bloquer.
+ * Retourne true si le socket a des données prêtes à être lues.
  */
 bool SocketUtils::hasData(SOCKET sock, int timeoutMs) {
     fd_set readSet;
@@ -167,14 +217,21 @@ bool SocketUtils::hasData(SOCKET sock, int timeoutMs) {
     timeout.tv_sec = timeoutMs / 1000;
     timeout.tv_usec = (timeoutMs % 1000) * 1000;
     
-    // select retourne > 0 si le socket est prêt à être lu
     int result = select(sock + 1, &readSet, nullptr, nullptr, &timeout);
     return result > 0 && FD_ISSET(sock, &readSet);
 }
 
-/**
- * Reçoit exactement 'size' octets en bouclant sur recv().
- * Gère la fragmentation TCP.
+/* ========================================================================== */
+/*                PROTOCOLE AVEC PRÉFIXE DE LONGUEUR                          */
+/* ========================================================================== */
+
+/*
+ * Reçoit exactement N octets en bouclant sur recv().
+ * 
+ * Résout le problème de fragmentation TCP : un seul appel recv()
+ * peut retourner moins d'octets que demandé si les données
+ * arrivent en plusieurs paquets.
+ * 
  * Retourne true si succès, false si déconnexion ou erreur.
  */
 bool SocketUtils::receiveExact(SOCKET sock, char* buffer, size_t size) {
@@ -182,49 +239,58 @@ bool SocketUtils::receiveExact(SOCKET sock, char* buffer, size_t size) {
     while (totalReceived < size) {
         ssize_t received = recv(sock, buffer + totalReceived, size - totalReceived, 0);
         if (received <= 0) {
-            return false; // Déconnexion ou erreur
+            return false;
         }
         totalReceived += received;
     }
     return true;
 }
 
-/**
- * Envoie des données avec un préfixe de 4 octets indiquant la longueur.
- * Format: [4 octets longueur en network byte order][données]
- * Cela permet au récepteur de savoir exactement combien d'octets lire.
+/*
+ * Envoie des données avec un préfixe de longueur de 4 octets.
+ * 
+ * Format du message :
+ *   [4 octets : longueur en network byte order][données]
+ * 
+ * Ce protocole permet au récepteur de savoir exactement
+ * combien d'octets il doit lire, résolvant ainsi le problème
+ * de délimitation des messages sur un flux TCP.
  */
 void SocketUtils::sendWithLength(SOCKET sock, const char* data, size_t size) {
-    // Envoyer la longueur en premier (4 octets, network byte order)
+    /* Envoi de la longueur (4 octets, big-endian) */
     uint32_t netLength = htonl(static_cast<uint32_t>(size));
     sendData(sock, reinterpret_cast<const char*>(&netLength), sizeof(netLength));
     
-    // Envoyer les données
+    /* Envoi des données */
     sendData(sock, data, size);
 }
 
-/**
+/*
  * Reçoit des données avec préfixe de longueur.
- * Lit d'abord les 4 octets de longueur, puis les données.
- * Retourne le nombre d'octets reçus (0 si déconnexion).
+ * 
+ * 1. Lit les 4 premiers octets pour obtenir la longueur
+ * 2. Convertit de network byte order vers host byte order
+ * 3. Lit exactement ce nombre d'octets
+ * 
+ * Retourne le nombre d'octets reçus, 0 si déconnexion.
  */
 size_t SocketUtils::receiveWithLength(SOCKET sock, char* buffer, size_t maxSize) {
-    // Lire la longueur (4 octets)
+    /* Lecture de la longueur */
     uint32_t netLength;
     if (!receiveExact(sock, reinterpret_cast<char*>(&netLength), sizeof(netLength))) {
-        return 0; // Déconnexion
+        return 0;
     }
     
     uint32_t dataLength = ntohl(netLength);
     
-    // Vérifier que le buffer est assez grand
+    /* Vérification de la taille du buffer */
     if (dataLength > maxSize) {
         throw std::runtime_error("Message trop grand: " + std::to_string(dataLength) + " > " + std::to_string(maxSize));
     }
     
-    // Lire les données
+    /* Lecture des données */
     if (!receiveExact(sock, buffer, dataLength)) {
-        return 0; // Déconnexion pendant la réception
+        return 0;
     }
     
     return dataLength;

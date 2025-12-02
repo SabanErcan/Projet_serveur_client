@@ -1,3 +1,20 @@
+/*
+ * serveur.cpp
+ * 
+ * Serveur de messagerie instantanée multi-threadé.
+ * 
+ * Architecture :
+ *   - Thread principal     : accepte les connexions entrantes
+ *   - Threads utilisateurs : un par client connecté (réception commandes)
+ *   - Thread de livraison  : distribue les messages toutes les 30 secondes
+ * 
+ * Synchronisation :
+ *   - Mutex sur les structures partagées (utilisateurs, file, historique)
+ *   - Variable atomique pour le flag d'arrêt
+ * 
+ * Projet R3.05 - Programmation Système
+ */
+
 #include "message.h"
 #include "socket_utils.h"
 #include <iostream>
@@ -14,29 +31,50 @@
 #include <ctime>
 #include <atomic>
 
-// Constantes de configuration
-constexpr int PORT = 8888;
-constexpr int DELIVERY_INTERVAL_SECONDS = 30; // Intervalle de livraison des messages
+/* ========================================================================== */
+/*                          CONFIGURATION                                     */
+/* ========================================================================== */
 
-// Structure représentant un utilisateur connecté
+constexpr int PORT = 8888;                        /* Port d'écoute du serveur       */
+constexpr int DELIVERY_INTERVAL_SECONDS = 30;     /* Intervalle de livraison (s)    */
+
+/* ========================================================================== */
+/*                      STRUCTURES DE DONNÉES                                 */
+/* ========================================================================== */
+
+/*
+ * Structure représentant un utilisateur connecté.
+ * Chaque client dispose de son propre thread de gestion.
+ */
 struct ConnectedUser {
-    std::string username;
-    SOCKET socket;
-    std::thread* handlerThread; // Thread dédié à la gestion de cet utilisateur
+    std::string username;           /* Nom d'utilisateur                      */
+    SOCKET socket;                  /* Socket de communication                */
+    std::thread* handlerThread;     /* Thread dédié à ce client               */
 };
 
-// Variables globales (partagées entre les threads)
-std::vector<ConnectedUser> g_connectedUsers; // Liste des utilisateurs connectés
-std::queue<Message> g_messageQueue;          // File d'attente des messages à livrer
-std::vector<Message> g_messageHistory;       // Historique complet des messages
-std::mutex g_usersMutex;                     // Mutex pour protéger l'accès à g_connectedUsers
-std::mutex g_queueMutex;                     // Mutex pour protéger l'accès à g_messageQueue
-std::mutex g_historyMutex;                   // Mutex pour protéger l'accès à g_messageHistory
-std::mutex g_logMutex;                       // Mutex pour protéger l'écriture dans le fichier log
-std::ofstream g_logFile;                     // Fichier de log
-std::atomic<bool> g_serverRunning(true);     // Drapeau atomique pour contrôler la boucle principale
+/* ========================================================================== */
+/*                      VARIABLES GLOBALES                                    */
+/* ========================================================================== */
 
-// Prototypes de fonctions
+/* Données partagées entre les threads */
+std::vector<ConnectedUser> g_connectedUsers;  /* Liste des utilisateurs connectés  */
+std::queue<Message> g_messageQueue;           /* File d'attente des messages       */
+std::vector<Message> g_messageHistory;        /* Historique des messages           */
+
+/* Mutex pour la synchronisation (exclusion mutuelle) */
+std::mutex g_usersMutex;                      /* Protection de g_connectedUsers    */
+std::mutex g_queueMutex;                      /* Protection de g_messageQueue      */
+std::mutex g_historyMutex;                    /* Protection de g_messageHistory    */
+std::mutex g_logMutex;                        /* Protection de l'écriture log      */
+
+/* Autres variables globales */
+std::ofstream g_logFile;                      /* Fichier de journalisation         */
+std::atomic<bool> g_serverRunning(true);      /* Flag d'arrêt (atomique)           */
+
+/* ========================================================================== */
+/*                      PROTOTYPES DE FONCTIONS                               */
+/* ========================================================================== */
+
 void writeLog(const std::string& message);
 std::string getCurrentTimestamp();
 void userHandlerThread(SOCKET clientSocket, std::string clientIP);
@@ -49,9 +87,13 @@ void handleCommand(SOCKET clientSocket, const std::string& username, const std::
 bool isUserConnected(const std::string& username);
 void sendNotificationToSender(const std::string& senderUsername, const std::string& notification);
 
-/**
- * Écrit un message dans le fichier de log et sur la console.
- * Thread-safe grâce à g_logMutex.
+/* ========================================================================== */
+/*                           JOURNALISATION                                   */
+/* ========================================================================== */
+
+/*
+ * Écrit un message horodaté dans le fichier de log et sur la console.
+ * Thread-safe grâce au mutex g_logMutex.
  */
 void writeLog(const std::string& message) {
     std::lock_guard<std::mutex> lock(g_logMutex);
@@ -62,8 +104,9 @@ void writeLog(const std::string& message) {
     std::cout << logEntry << std::endl;
 }
 
-/**
- * Retourne le timestamp actuel formaté en chaîne de caractères.
+/*
+ * Retourne l'heure actuelle formatée en chaîne de caractères.
+ * Format : YYYY-MM-DD HH:MM:SS
  */
 std::string getCurrentTimestamp() {
     auto now = std::chrono::system_clock::now();
@@ -73,15 +116,27 @@ std::string getCurrentTimestamp() {
     return ss.str();
 }
 
-/**
- * Thread dédié à la gestion d'un client spécifique.
- * Reçoit les commandes du client et les traite.
+/* ========================================================================== */
+/*                    THREAD DE GESTION UTILISATEUR                           */
+/* ========================================================================== */
+
+/*
+ * Thread dédié à la gestion d'un client connecté.
+ * 
+ * Cycle de vie :
+ *   1. Réception du nom d'utilisateur
+ *   2. Boucle de réception des commandes
+ *   3. Nettoyage et fermeture à la déconnexion
+ * 
+ * Paramètres :
+ *   - clientSocket : socket de communication avec ce client
+ *   - clientIP     : adresse IP du client (pour le log)
  */
 void userHandlerThread(SOCKET clientSocket, std::string clientIP) {
     std::string username;
     
     try {
-        // 1. Réception du nom d'utilisateur avec protocole fiable
+        /* Étape 1 : Réception du nom d'utilisateur */
         char buffer[256];
         size_t received = SocketUtils::receiveWithLength(clientSocket, buffer, sizeof(buffer) - 1);
         if (received == 0) {
@@ -90,7 +145,7 @@ void userHandlerThread(SOCKET clientSocket, std::string clientIP) {
         buffer[received] = '\0';
         username = std::string(buffer);
         
-        // Mise à jour du nom d'utilisateur dans la structure globale
+        /* Mise à jour du nom dans la structure globale */
         {
             std::lock_guard<std::mutex> lock(g_usersMutex);
             for (auto& user : g_connectedUsers) {
@@ -103,14 +158,14 @@ void userHandlerThread(SOCKET clientSocket, std::string clientIP) {
         
         writeLog("Utilisateur connecté: " + username + " depuis " + clientIP);
         
-        // 2. Boucle principale de réception des commandes
+        /* Étape 2 : Boucle principale de réception des commandes */
         while (g_serverRunning) {
-            // Vérifier si des données sont disponibles (timeout 1s pour vérifier g_serverRunning régulièrement)
+            /* Vérification non-bloquante avec timeout de 1 seconde */
             if (!SocketUtils::hasData(clientSocket, 1000)) {
                 continue;
             }
             
-            // Réception avec protocole fiable
+            /* Réception de la commande */
             received = SocketUtils::receiveWithLength(clientSocket, buffer, sizeof(buffer) - 1);
             if (received == 0) {
                 writeLog("Utilisateur déconnecté: " + username);
@@ -128,20 +183,29 @@ void userHandlerThread(SOCKET clientSocket, std::string clientIP) {
         writeLog("Erreur avec " + username + ": " + std::string(e.what()));
     }
     
-    // Nettoyage à la fin du thread
+    /* Étape 3 : Nettoyage */
     removeUser(clientSocket);
     SocketUtils::closeSocket(clientSocket);
 }
 
-/**
+/* ========================================================================== */
+/*                       THREAD DE LIVRAISON                                  */
+/* ========================================================================== */
+
+/*
  * Thread de livraison périodique des messages.
- * Vérifie la file d'attente toutes les 30 secondes et distribue les messages.
+ * 
+ * Fonctionnement :
+ *   - Se réveille toutes les 30 secondes
+ *   - Vide la file d'attente des messages
+ *   - Route chaque message vers son destinataire (unicast ou broadcast)
+ *   - Notifie l'expéditeur en cas d'échec de livraison
  */
 void deliveryThread() {
     writeLog("Thread de livraison démarré");
     
     while (g_serverRunning) {
-        // Attente de l'intervalle de livraison
+        /* Attente de l'intervalle de livraison */
         std::this_thread::sleep_for(std::chrono::seconds(DELIVERY_INTERVAL_SECONDS));
         
         std::lock_guard<std::mutex> queueLock(g_queueMutex);
@@ -152,33 +216,33 @@ void deliveryThread() {
         
         writeLog("Livraison de " + std::to_string(g_messageQueue.size()) + " message(s)");
         
-        // Traitement de tous les messages en attente
+        /* Traitement de tous les messages en attente */
         while (!g_messageQueue.empty()) {
             Message msg = g_messageQueue.front();
             g_messageQueue.pop();
             
-            // Ajouter le timestamp de livraison
+            /* Horodatage de la livraison */
             msg.receivedAt = std::time(nullptr);
             
-            // Routage du message : Broadcast ou Unicast
+            /* Routage : broadcast si "all", unicast sinon */
             bool delivered = false;
             if (std::string(msg.to) == "all") {
                 broadcastMessage(msg);
                 delivered = true;
             } else {
-                // Vérifier si le destinataire existe et envoyer
+                /* Vérification de l'existence du destinataire */
                 if (isUserConnected(msg.to)) {
                     sendMessageToUser(msg.to, msg);
                     delivered = true;
                 } else {
-                    // Notifier l'expéditeur de l'échec
+                    /* Notification d'échec à l'expéditeur */
                     std::string notification = "NOTIFY:Échec livraison - Utilisateur '" + std::string(msg.to) + "' non connecté";
                     sendNotificationToSender(msg.from, notification);
                     writeLog("Échec livraison: destinataire '" + std::string(msg.to) + "' non connecté");
                 }
             }
             
-            // Archivage du message dans l'historique
+            /* Archivage dans l'historique */
             {
                 std::lock_guard<std::mutex> historyLock(g_historyMutex);
                 g_messageHistory.push_back(msg);
@@ -193,8 +257,12 @@ void deliveryThread() {
     writeLog("Thread de livraison terminé");
 }
 
-/**
- * Vérifie si un utilisateur est connecté.
+/* ========================================================================== */
+/*                     FONCTIONS UTILITAIRES                                  */
+/* ========================================================================== */
+
+/*
+ * Vérifie si un utilisateur est actuellement connecté.
  */
 bool isUserConnected(const std::string& username) {
     std::lock_guard<std::mutex> lock(g_usersMutex);
@@ -206,8 +274,9 @@ bool isUserConnected(const std::string& username) {
     return false;
 }
 
-/**
- * Envoie une notification à l'expéditeur d'un message.
+/*
+ * Envoie une notification à un utilisateur (typiquement l'expéditeur).
+ * Utilisé pour informer d'un échec de livraison.
  */
 void sendNotificationToSender(const std::string& senderUsername, const std::string& notification) {
     std::lock_guard<std::mutex> lock(g_usersMutex);
@@ -223,8 +292,15 @@ void sendNotificationToSender(const std::string& senderUsername, const std::stri
     }
 }
 
-/**
- * Envoie un message à un utilisateur spécifique s'il est connecté.
+/* ========================================================================== */
+/*                       ENVOI DE MESSAGES                                    */
+/* ========================================================================== */
+
+/*
+ * Envoie un message à un utilisateur spécifique.
+ * 
+ * Format du protocole :
+ *   [4 octets longueur]["MSG:" + données sérialisées du Message]
  */
 void sendMessageToUser(const std::string& username, const Message& msg) {
     std::lock_guard<std::mutex> lock(g_usersMutex);
@@ -236,7 +312,7 @@ void sendMessageToUser(const std::string& username, const Message& msg) {
                 size_t size;
                 msg.serialize(buffer, size);
                 
-                // Protocole: En-tête "MSG:" + données sérialisées, le tout avec préfixe de longueur
+                /* Construction du message complet : header + données */
                 std::string header = "MSG:";
                 std::vector<char> fullMessage(header.begin(), header.end());
                 fullMessage.insert(fullMessage.end(), buffer, buffer + size);
@@ -253,20 +329,21 @@ void sendMessageToUser(const std::string& username, const Message& msg) {
     writeLog("Utilisateur destinataire inexistant ou déconnecté: " + username);
 }
 
-/**
+/*
  * Diffuse un message à tous les utilisateurs connectés (sauf l'expéditeur).
+ * Utilisé pour les messages avec destinataire "all".
  */
 void broadcastMessage(const Message& msg) {
     std::lock_guard<std::mutex> lock(g_usersMutex);
     
     for (const auto& user : g_connectedUsers) {
-        if (user.username != std::string(msg.from)) { // Ne pas envoyer à l'expéditeur
+        /* Exclure l'expéditeur de la diffusion */
+        if (user.username != std::string(msg.from)) {
             try {
                 char buffer[sizeof(Message) + 10];
                 size_t size;
                 msg.serialize(buffer, size);
                 
-                // Protocole unifié avec préfixe de longueur
                 std::string header = "MSG:";
                 std::vector<char> fullMessage(header.begin(), header.end());
                 fullMessage.insert(fullMessage.end(), buffer, buffer + size);
@@ -280,8 +357,8 @@ void broadcastMessage(const Message& msg) {
     }
 }
 
-/**
- * Trouve le nom d'utilisateur associé à un socket.
+/*
+ * Retourne le nom d'utilisateur associé à un socket.
  */
 std::string getUsernameBySocket(SOCKET sock) {
     std::lock_guard<std::mutex> lock(g_usersMutex);
@@ -293,9 +370,9 @@ std::string getUsernameBySocket(SOCKET sock) {
     return "";
 }
 
-/**
+/*
  * Retire un utilisateur de la liste des connectés.
- * Arrête le serveur si c'était le dernier utilisateur.
+ * Condition d'arrêt du serveur : si c'était le dernier utilisateur.
  */
 void removeUser(SOCKET sock) {
     std::lock_guard<std::mutex> lock(g_usersMutex);
@@ -308,7 +385,7 @@ void removeUser(SOCKET sock) {
         g_connectedUsers.erase(it);
         writeLog("Utilisateur retiré: " + username + " (" + std::to_string(g_connectedUsers.size()) + " restants)");
         
-        // Arrêter le serveur si c'est le dernier client (Condition d'arrêt du projet)
+        /* Arrêt du serveur si plus aucun client */
         if (g_connectedUsers.empty()) {
             writeLog("Dernier client déconnecté - Arrêt du serveur");
             g_serverRunning = false;
@@ -316,23 +393,30 @@ void removeUser(SOCKET sock) {
     }
 }
 
-/**
+/* ========================================================================== */
+/*                    TRAITEMENT DES COMMANDES                                */
+/* ========================================================================== */
+
+/*
  * Traite une commande reçue d'un client.
- * Commandes supportées: SEND, LIST_USERS, GET_LOG, DISCONNECT
+ * 
+ * Commandes supportées :
+ *   - SEND:       Envoyer un message (suivi des données sérialisées)
+ *   - LIST_USERS  Obtenir la liste des utilisateurs connectés
+ *   - GET_LOG     Télécharger le fichier de log du serveur
+ *   - DISCONNECT  Se déconnecter proprement
  */
 void handleCommand(SOCKET clientSocket, const std::string& username, const std::string& command) {
     try {
         if (command.substr(0, 5) == "SEND:") {
-            // Commande d'envoi de message
-            // Le client envoie d'abord "SEND:", puis la structure Message sérialisée
-            
+            /* Commande d'envoi de message */
             char buffer[sizeof(Message)];
             size_t received = SocketUtils::receiveWithLength(clientSocket, buffer, sizeof(buffer));
             
             if (received == sizeof(Message)) {
                 Message msg = Message::deserialize(buffer, received);
                 
-                // Ajouter le message à la file d'attente pour le thread de livraison
+                /* Ajout à la file d'attente pour le thread de livraison */
                 {
                     std::lock_guard<std::mutex> lock(g_queueMutex);
                     g_messageQueue.push(msg);
@@ -347,7 +431,7 @@ void handleCommand(SOCKET clientSocket, const std::string& username, const std::
             }
             
         } else if (command == "LIST_USERS") {
-            // Demande de la liste des utilisateurs connectés
+            /* Liste des utilisateurs connectés */
             std::string userList;
             {
                 std::lock_guard<std::mutex> lock(g_usersMutex);
@@ -360,7 +444,7 @@ void handleCommand(SOCKET clientSocket, const std::string& username, const std::
             SocketUtils::sendWithLength(clientSocket, response.c_str(), response.length());
             
         } else if (command == "GET_LOG") {
-            // Demande de téléchargement du fichier de log
+            /* Téléchargement du fichier de log */
             std::ifstream logFile("server.log", std::ios::binary);
             if (logFile) {
                 std::string logContent((std::istreambuf_iterator<char>(logFile)),
@@ -374,13 +458,13 @@ void handleCommand(SOCKET clientSocket, const std::string& username, const std::
             }
             
         } else if (command == "DISCONNECT") {
-            // Demande de déconnexion explicite
+            /* Déconnexion explicite */
             std::string response = "OK:Déconnexion";
             SocketUtils::sendWithLength(clientSocket, response.c_str(), response.length());
             writeLog("Déconnexion demandée par " + username);
             
         } else {
-            // Commande inconnue
+            /* Commande inconnue */
             std::string response = "ERROR:Commande inexistante";
             SocketUtils::sendWithLength(clientSocket, response.c_str(), response.length());
             writeLog("Commande invalide de " + username + ": " + command);
@@ -392,17 +476,37 @@ void handleCommand(SOCKET clientSocket, const std::string& username, const std::
             std::string response = "ERROR:" + std::string(e.what());
             SocketUtils::sendWithLength(clientSocket, response.c_str(), response.length());
         } catch (...) {
-            // Ignorer les erreurs d'envoi de la réponse d'erreur
+            /* Ignorer les erreurs d'envoi de la réponse d'erreur */
         }
     }
 }
 
+/* ========================================================================== */
+/*                         FONCTION PRINCIPALE                                */
+/* ========================================================================== */
+
+/*
+ * Point d'entrée du serveur.
+ * 
+ * Séquence de démarrage :
+ *   1. Initialisation de la couche réseau
+ *   2. Ouverture du fichier de log
+ *   3. Création et configuration du socket serveur
+ *   4. Démarrage du thread de livraison
+ *   5. Boucle d'acceptation des connexions
+ * 
+ * Séquence d'arrêt :
+ *   1. Attente de la fin du thread de livraison
+ *   2. Attente et nettoyage des threads utilisateurs
+ *   3. Fermeture du socket serveur
+ *   4. Libération des ressources
+ */
 int main() {
     try {
-        // Initialisation de la couche réseau
+        /* Initialisation de la couche réseau (Winsock sous Windows) */
         SocketUtils::initializeWinsock();
         
-        // Ouverture du fichier de log en mode ajout
+        /* Ouverture du fichier de log en mode ajout */
         g_logFile.open("server.log", std::ios::app);
         if (!g_logFile) {
             std::cerr << "Impossible d'ouvrir le fichier de log" << std::endl;
@@ -411,19 +515,19 @@ int main() {
         
         writeLog("=== SERVEUR DE MESSAGERIE DÉMARRÉ ===");
         
-        // Configuration du socket serveur
+        /* Configuration du socket serveur */
         SOCKET serverSocket = SocketUtils::createTCPSocket();
         SocketUtils::bindSocket(serverSocket, PORT);
         SocketUtils::listenSocket(serverSocket);
         
         writeLog("Serveur en écoute sur le port " + std::to_string(PORT));
         
-        // Démarrage du thread de livraison des messages
+        /* Démarrage du thread de livraison */
         std::thread deliveryThreadObj(deliveryThread);
         
-        // Boucle principale d'acceptation des connexions
+        /* Boucle principale : acceptation des connexions entrantes */
         while (g_serverRunning) {
-            // Vérifier si une connexion est en attente (non-bloquant)
+            /* Vérification non-bloquante d'une connexion en attente */
             if (!SocketUtils::hasData(serverSocket, 1000)) {
                 continue;
             }
@@ -431,26 +535,26 @@ int main() {
             std::string clientIP;
             SOCKET clientSocket = SocketUtils::acceptConnection(serverSocket, clientIP);
             
-            // Création d'un nouveau thread pour gérer ce client
+            /* Création d'un thread dédié pour ce client */
             std::thread* userThread = new std::thread(userHandlerThread, clientSocket, clientIP);
             
-            // Enregistrement de l'utilisateur
+            /* Enregistrement dans la liste des utilisateurs */
             {
                 std::lock_guard<std::mutex> lock(g_usersMutex);
                 ConnectedUser user;
-                user.username = ""; // Sera défini par le thread userHandlerThread
+                user.username = "";  /* Sera défini par le thread */
                 user.socket = clientSocket;
                 user.handlerThread = userThread;
                 g_connectedUsers.push_back(user);
             }
         }
         
-        // Arrêt propre : Attendre la fin du thread de livraison
+        /* Arrêt propre : attente du thread de livraison */
         if (deliveryThreadObj.joinable()) {
             deliveryThreadObj.join();
         }
         
-        // Attendre la fin de tous les threads utilisateurs et libérer la mémoire
+        /* Attente et nettoyage des threads utilisateurs */
         {
             std::lock_guard<std::mutex> lock(g_usersMutex);
             for (auto& user : g_connectedUsers) {
@@ -464,7 +568,7 @@ int main() {
             }
         }
         
-        // Fermeture du socket serveur
+        /* Fermeture du socket serveur */
         SocketUtils::closeSocket(serverSocket);
         
         writeLog("=== SERVEUR ARRÊTÉ ===");

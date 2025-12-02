@@ -1,69 +1,82 @@
-# Makefile pour l'application de messagerie instantanée
+# =============================================================================
+# Makefile - Application de messagerie instantanée client/serveur
+# Projet R3.05 - Programmation Système
+# =============================================================================
 
-# Compilateur et flags
+# -----------------------------------------------------------------------------
+# Configuration du compilateur
+# -----------------------------------------------------------------------------
 CXX = g++
-CXXFLAGS = -std=c++20 -pthread -Wall -Wextra
-LDFLAGS = -lws2_32
+CXXFLAGS = -std=c++20 -pthread -Wall -Wextra -O2
 
-# Fichiers sources
-MESSAGE_SRC = message.cpp
-SOCKET_SRC = socket_utils.cpp
-SERVER_SRC = serveur.cpp
-CLIENT_SRC = client.cpp
+# Pas besoin de bibliothèque supplémentaire sous Linux/WSL
+# Sous Windows avec MinGW, ajouter : LDFLAGS = -lws2_32
+LDFLAGS =
 
-# Fichiers objets
-MESSAGE_OBJ = message.o
-SOCKET_OBJ = socket_utils.o
-SERVER_OBJ = serveur.o
-CLIENT_OBJ = client.o
+# -----------------------------------------------------------------------------
+# Définition des fichiers sources
+# -----------------------------------------------------------------------------
+COMMON_SRC = message.cpp socket_utils.cpp
+SERVER_SRC = serveur.cpp $(COMMON_SRC)
+CLIENT_SRC = client.cpp $(COMMON_SRC)
 
-# Exécutables
-SERVER_EXE = serveur.exe
-CLIENT_EXE = client.exe
+# -----------------------------------------------------------------------------
+# Définition des exécutables
+# -----------------------------------------------------------------------------
+SERVER_EXE = serveur
+CLIENT_EXE = client
 
-# Règle par défaut
+# -----------------------------------------------------------------------------
+# Règle par défaut : compile le serveur et le client
+# -----------------------------------------------------------------------------
 all: $(SERVER_EXE) $(CLIENT_EXE)
 
+# -----------------------------------------------------------------------------
 # Compilation du serveur
-$(SERVER_EXE): $(SERVER_OBJ) $(MESSAGE_OBJ) $(SOCKET_OBJ)
+# Dépendances : serveur.cpp, message.cpp, socket_utils.cpp
+# -----------------------------------------------------------------------------
+$(SERVER_EXE): $(SERVER_SRC)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
 
+# -----------------------------------------------------------------------------
 # Compilation du client
-$(CLIENT_EXE): $(CLIENT_OBJ) $(MESSAGE_OBJ) $(SOCKET_OBJ)
+# Dépendances : client.cpp, message.cpp, socket_utils.cpp
+# -----------------------------------------------------------------------------
+$(CLIENT_EXE): $(CLIENT_SRC)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
 
-# Règles pour les fichiers objets
-%.o: %.cpp
-	$(CXX) $(CXXFLAGS) -c $<
-
-# Dépendances
-serveur.o: serveur.cpp message.h socket_utils.h
-client.o: client.cpp message.h socket_utils.h
-message.o: message.cpp message.h
-socket_utils.o: socket_utils.cpp socket_utils.h
-
-# Nettoyage
+# -----------------------------------------------------------------------------
+# Nettoyage des fichiers générés
+# -----------------------------------------------------------------------------
 clean:
-	del /Q *.o *.exe server.log 2>nul
+	rm -f $(SERVER_EXE) $(CLIENT_EXE) server.log *.o
 
-# Nettoyage complet (avec log)
-cleanall: clean
-	del /Q server.log 2>nul
-
-# Compilation serveur uniquement
+# -----------------------------------------------------------------------------
+# Compilation du serveur uniquement
+# -----------------------------------------------------------------------------
 server: $(SERVER_EXE)
 
-# Compilation client uniquement
+# -----------------------------------------------------------------------------
+# Compilation du client uniquement
+# -----------------------------------------------------------------------------
 client: $(CLIENT_EXE)
 
-# Aide
+# -----------------------------------------------------------------------------
+# Affichage de l'aide
+# -----------------------------------------------------------------------------
 help:
-	@echo Usage:
-	@echo   make         - Compiler serveur et client
-	@echo   make server  - Compiler uniquement le serveur
-	@echo   make client  - Compiler uniquement le client
-	@echo   make clean   - Nettoyer les fichiers objets et executables
-	@echo   make cleanall- Nettoyer tout (y compris server.log)
-	@echo   make help    - Afficher cette aide
+	@echo "=== Makefile - Messagerie Instantanée ==="
+	@echo ""
+	@echo "Utilisation :"
+	@echo "  make          Compiler le serveur et le client"
+	@echo "  make server   Compiler uniquement le serveur"
+	@echo "  make client   Compiler uniquement le client"
+	@echo "  make clean    Supprimer les fichiers générés"
+	@echo "  make help     Afficher cette aide"
+	@echo ""
+	@echo "Exécution :"
+	@echo "  ./serveur                    Lancer le serveur (port 8888)"
+	@echo "  ./client [IP] [PORT]         Lancer le client"
 
-.PHONY: all clean cleanall server client help
+# Déclaration des cibles qui ne sont pas des fichiers
+.PHONY: all clean server client help
