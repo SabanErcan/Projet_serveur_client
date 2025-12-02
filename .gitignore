@@ -1,0 +1,37 @@
+# Exécutables
+*.exe
+*.out
+serveur
+client
+
+# Fichiers objets
+*.o
+*.obj
+
+# Fichiers de log
+server.log
+*.log
+
+# Fichiers temporaires
+*.tmp
+*.temp
+
+# Fichiers système Windows
+Thumbs.db
+desktop.ini
+
+# Fichiers système macOS
+.DS_Store
+
+# Fichiers IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Fichiers de compilation
+*.a
+*.so
+*.dll
+*.dylib
