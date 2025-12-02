@@ -31,7 +31,7 @@ void clearInputBuffer();
 
 // Thread d'écoute des messages du serveur
 void listenThread() {
-    char buffer[sizeof(Message) + 10];
+    char buffer[sizeof(Message) + 100];
     
     while (g_clientRunning) {
         try {
@@ -40,8 +40,9 @@ void listenThread() {
                 continue;
             }
             
-            ssize_t received = SocketUtils::receiveData(g_serverSocket, buffer, sizeof(buffer) - 1);
-            if (received <= 0) {
+            // Réception avec protocole fiable (préfixe de longueur)
+            size_t received = SocketUtils::receiveWithLength(g_serverSocket, buffer, sizeof(buffer) - 1);
+            if (received == 0) {
                 if (g_clientRunning) {
                     std::cout << "\n[SYSTÈME] Connexion au serveur perdue" << std::endl;
                     g_clientRunning = false;
@@ -50,22 +51,33 @@ void listenThread() {
             }
             
             buffer[received] = '\0';
-            std::string response(buffer);
+            std::string response(buffer, received);
             
             // Traiter les différents types de réponses
             if (response.substr(0, 4) == "MSG:") {
-                // Nouveau message reçu
-                Message msg = Message::deserialize(buffer + 4, received - 4);
-                
-                {
-                    std::lock_guard<std::mutex> lock(g_messagesMutex);
-                    g_receivedMessages.push_back(msg);
+                // Nouveau message reçu - les données binaires suivent le header
+                if (received > 4) {
+                    Message msg = Message::deserialize(buffer + 4, received - 4);
+                    // Le timestamp est déjà défini par le serveur lors de la livraison
+                    
+                    {
+                        std::lock_guard<std::mutex> lock(g_messagesMutex);
+                        g_receivedMessages.push_back(msg);
+                    }
+                    
+                    // Afficher notification seulement si on n'est pas en train de composer
+                    if (!g_isComposing) {
+                        std::cout << "\n[NOUVEAU MESSAGE] De: " << msg.from 
+                                  << " | Sujet: " << msg.subject << std::endl;
+                        std::cout << "Tapez votre commande: ";
+                        std::cout.flush();
+                    }
                 }
                 
-                // Afficher notification seulement si on n'est pas en train de composer
+            } else if (response.substr(0, 7) == "NOTIFY:") {
+                // Notification du serveur (ex: échec de livraison)
                 if (!g_isComposing) {
-                    std::cout << "\n[NOUVEAU MESSAGE] De: " << msg.from 
-                              << " | Sujet: " << msg.subject << std::endl;
+                    std::cout << "\n[NOTIFICATION] " << response.substr(7) << std::endl;
                     std::cout << "Tapez votre commande: ";
                     std::cout.flush();
                 }
@@ -226,7 +238,7 @@ void markAsRead() {
 void listOnlineUsers() {
     try {
         std::string command = "LIST_USERS";
-        SocketUtils::sendData(g_serverSocket, command.c_str(), command.length());
+        SocketUtils::sendWithLength(g_serverSocket, command.c_str(), command.length());
     } catch (const std::exception& e) {
         std::cout << "Erreur lors de la demande: " << e.what() << std::endl;
     }
@@ -253,14 +265,15 @@ void composeMessage() {
         // Valider et créer le message
         Message msg(g_username, to, subject, body);
         
-        // Envoyer au serveur
+        // Envoyer la commande au serveur avec protocole fiable
         std::string command = "SEND:";
-        SocketUtils::sendData(g_serverSocket, command.c_str(), command.length());
+        SocketUtils::sendWithLength(g_serverSocket, command.c_str(), command.length());
         
+        // Envoyer le message sérialisé avec protocole fiable
         char buffer[sizeof(Message)];
         size_t size;
         msg.serialize(buffer, size);
-        SocketUtils::sendData(g_serverSocket, buffer, size);
+        SocketUtils::sendWithLength(g_serverSocket, buffer, size);
         
         std::cout << "Message envoyé (sera livré dans max 30s)." << std::endl;
         
@@ -275,7 +288,7 @@ void composeMessage() {
 void requestServerLog() {
     try {
         std::string command = "GET_LOG";
-        SocketUtils::sendData(g_serverSocket, command.c_str(), command.length());
+        SocketUtils::sendWithLength(g_serverSocket, command.c_str(), command.length());
     } catch (const std::exception& e) {
         std::cout << "Erreur lors de la demande: " << e.what() << std::endl;
     }
@@ -285,7 +298,7 @@ void requestServerLog() {
 void disconnect() {
     try {
         std::string command = "DISCONNECT";
-        SocketUtils::sendData(g_serverSocket, command.c_str(), command.length());
+        SocketUtils::sendWithLength(g_serverSocket, command.c_str(), command.length());
     } catch (const std::exception& e) {
         // Ignorer les erreurs
     }
@@ -332,8 +345,8 @@ int main(int argc, char* argv[]) {
         g_serverSocket = SocketUtils::createTCPSocket();
         SocketUtils::connectToServer(g_serverSocket, serverIP, port);
         
-        // Envoyer le nom d'utilisateur
-        SocketUtils::sendData(g_serverSocket, g_username.c_str(), g_username.length());
+        // Envoyer le nom d'utilisateur avec protocole fiable
+        SocketUtils::sendWithLength(g_serverSocket, g_username.c_str(), g_username.length());
         
         std::cout << "Connecté avec succès!" << std::endl;
         

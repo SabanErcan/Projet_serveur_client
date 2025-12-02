@@ -6,7 +6,7 @@
  * Constructeur par défaut.
  * Initialise tous les champs à 0 pour éviter les données parasites.
  */
-Message::Message() : isRead(false) {
+Message::Message() : isRead(false), receivedAt(0) {
     memset(from, 0, MAX_FROM_SIZE);
     memset(to, 0, MAX_TO_SIZE);
     memset(subject, 0, MAX_SUBJECT_SIZE);
@@ -19,7 +19,7 @@ Message::Message() : isRead(false) {
  * Lève une exception si une taille est dépassée.
  */
 Message::Message(const std::string& fromStr, const std::string& toStr, 
-                 const std::string& subjectStr, const std::string& bodyStr) : isRead(false) {
+                 const std::string& subjectStr, const std::string& bodyStr) : isRead(false), receivedAt(0) {
     // Vérification des contraintes de taille
     validateField(fromStr, MAX_FROM_SIZE - 1, "From");
     validateField(toStr, MAX_TO_SIZE - 1, "To");
@@ -80,8 +80,14 @@ std::string Message::toString() const {
     oss << "=== MESSAGE ===\n"
         << "De: " << from << "\n"
         << "À: " << to << "\n"
-        << "Sujet: " << subject << "\n"
-        << "Corps:\n" << body << "\n"
+        << "Sujet: " << subject << "\n";
+    
+    // Afficher le timestamp si défini
+    if (receivedAt != 0) {
+        oss << "Reçu le: " << std::put_time(std::localtime(&receivedAt), "%Y-%m-%d %H:%M:%S") << "\n";
+    }
+    
+    oss << "Corps:\n" << body << "\n"
         << "Lu: " << (isRead ? "Oui" : "Non") << "\n"
         << "===============";
     return oss.str();

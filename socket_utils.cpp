@@ -171,3 +171,61 @@ bool SocketUtils::hasData(SOCKET sock, int timeoutMs) {
     int result = select(sock + 1, &readSet, nullptr, nullptr, &timeout);
     return result > 0 && FD_ISSET(sock, &readSet);
 }
+
+/**
+ * Reçoit exactement 'size' octets en bouclant sur recv().
+ * Gère la fragmentation TCP.
+ * Retourne true si succès, false si déconnexion ou erreur.
+ */
+bool SocketUtils::receiveExact(SOCKET sock, char* buffer, size_t size) {
+    size_t totalReceived = 0;
+    while (totalReceived < size) {
+        ssize_t received = recv(sock, buffer + totalReceived, size - totalReceived, 0);
+        if (received <= 0) {
+            return false; // Déconnexion ou erreur
+        }
+        totalReceived += received;
+    }
+    return true;
+}
+
+/**
+ * Envoie des données avec un préfixe de 4 octets indiquant la longueur.
+ * Format: [4 octets longueur en network byte order][données]
+ * Cela permet au récepteur de savoir exactement combien d'octets lire.
+ */
+void SocketUtils::sendWithLength(SOCKET sock, const char* data, size_t size) {
+    // Envoyer la longueur en premier (4 octets, network byte order)
+    uint32_t netLength = htonl(static_cast<uint32_t>(size));
+    sendData(sock, reinterpret_cast<const char*>(&netLength), sizeof(netLength));
+    
+    // Envoyer les données
+    sendData(sock, data, size);
+}
+
+/**
+ * Reçoit des données avec préfixe de longueur.
+ * Lit d'abord les 4 octets de longueur, puis les données.
+ * Retourne le nombre d'octets reçus (0 si déconnexion).
+ */
+size_t SocketUtils::receiveWithLength(SOCKET sock, char* buffer, size_t maxSize) {
+    // Lire la longueur (4 octets)
+    uint32_t netLength;
+    if (!receiveExact(sock, reinterpret_cast<char*>(&netLength), sizeof(netLength))) {
+        return 0; // Déconnexion
+    }
+    
+    uint32_t dataLength = ntohl(netLength);
+    
+    // Vérifier que le buffer est assez grand
+    if (dataLength > maxSize) {
+        throw std::runtime_error("Message trop grand: " + std::to_string(dataLength) + " > " + std::to_string(maxSize));
+    }
+    
+    // Lire les données
+    if (!receiveExact(sock, buffer, dataLength)) {
+        return 0; // Déconnexion pendant la réception
+    }
+    
+    return dataLength;
+}

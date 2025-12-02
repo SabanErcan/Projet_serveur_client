@@ -12,6 +12,7 @@
 #include <sstream>
 #include <iomanip>
 #include <ctime>
+#include <atomic>
 
 // Constantes de configuration
 constexpr int PORT = 8888;
@@ -33,7 +34,7 @@ std::mutex g_queueMutex;                     // Mutex pour protéger l'accès à
 std::mutex g_historyMutex;                   // Mutex pour protéger l'accès à g_messageHistory
 std::mutex g_logMutex;                       // Mutex pour protéger l'écriture dans le fichier log
 std::ofstream g_logFile;                     // Fichier de log
-bool g_serverRunning = true;                 // Drapeau pour contrôler la boucle principale
+std::atomic<bool> g_serverRunning(true);     // Drapeau atomique pour contrôler la boucle principale
 
 // Prototypes de fonctions
 void writeLog(const std::string& message);
@@ -45,6 +46,8 @@ void broadcastMessage(const Message& msg);
 std::string getUsernameBySocket(SOCKET sock);
 void removeUser(SOCKET sock);
 void handleCommand(SOCKET clientSocket, const std::string& username, const std::string& command);
+bool isUserConnected(const std::string& username);
+void sendNotificationToSender(const std::string& senderUsername, const std::string& notification);
 
 /**
  * Écrit un message dans le fichier de log et sur la console.
@@ -78,10 +81,10 @@ void userHandlerThread(SOCKET clientSocket, std::string clientIP) {
     std::string username;
     
     try {
-        // 1. Réception du nom d'utilisateur (première donnée envoyée par le client)
+        // 1. Réception du nom d'utilisateur avec protocole fiable
         char buffer[256];
-        ssize_t received = SocketUtils::receiveData(clientSocket, buffer, sizeof(buffer) - 1);
-        if (received <= 0) {
+        size_t received = SocketUtils::receiveWithLength(clientSocket, buffer, sizeof(buffer) - 1);
+        if (received == 0) {
             throw std::runtime_error("Déconnexion lors de la réception du nom");
         }
         buffer[received] = '\0';
@@ -107,8 +110,9 @@ void userHandlerThread(SOCKET clientSocket, std::string clientIP) {
                 continue;
             }
             
-            received = SocketUtils::receiveData(clientSocket, buffer, sizeof(buffer) - 1);
-            if (received <= 0) {
+            // Réception avec protocole fiable
+            received = SocketUtils::receiveWithLength(clientSocket, buffer, sizeof(buffer) - 1);
+            if (received == 0) {
                 writeLog("Utilisateur déconnecté: " + username);
                 break;
             }
@@ -153,11 +157,25 @@ void deliveryThread() {
             Message msg = g_messageQueue.front();
             g_messageQueue.pop();
             
+            // Ajouter le timestamp de livraison
+            msg.receivedAt = std::time(nullptr);
+            
             // Routage du message : Broadcast ou Unicast
+            bool delivered = false;
             if (std::string(msg.to) == "all") {
                 broadcastMessage(msg);
+                delivered = true;
             } else {
-                sendMessageToUser(msg.to, msg);
+                // Vérifier si le destinataire existe et envoyer
+                if (isUserConnected(msg.to)) {
+                    sendMessageToUser(msg.to, msg);
+                    delivered = true;
+                } else {
+                    // Notifier l'expéditeur de l'échec
+                    std::string notification = "NOTIFY:Échec livraison - Utilisateur '" + std::string(msg.to) + "' non connecté";
+                    sendNotificationToSender(msg.from, notification);
+                    writeLog("Échec livraison: destinataire '" + std::string(msg.to) + "' non connecté");
+                }
             }
             
             // Archivage du message dans l'historique
@@ -166,11 +184,43 @@ void deliveryThread() {
                 g_messageHistory.push_back(msg);
             }
             
-            writeLog("Message livré de " + std::string(msg.from) + " à " + std::string(msg.to));
+            if (delivered) {
+                writeLog("Message livré de " + std::string(msg.from) + " à " + std::string(msg.to));
+            }
         }
     }
     
     writeLog("Thread de livraison terminé");
+}
+
+/**
+ * Vérifie si un utilisateur est connecté.
+ */
+bool isUserConnected(const std::string& username) {
+    std::lock_guard<std::mutex> lock(g_usersMutex);
+    for (const auto& user : g_connectedUsers) {
+        if (user.username == username) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Envoie une notification à l'expéditeur d'un message.
+ */
+void sendNotificationToSender(const std::string& senderUsername, const std::string& notification) {
+    std::lock_guard<std::mutex> lock(g_usersMutex);
+    for (const auto& user : g_connectedUsers) {
+        if (user.username == senderUsername) {
+            try {
+                SocketUtils::sendWithLength(user.socket, notification.c_str(), notification.length());
+            } catch (const std::exception& e) {
+                writeLog("Échec envoi notification à " + senderUsername + ": " + std::string(e.what()));
+            }
+            return;
+        }
+    }
 }
 
 /**
@@ -186,10 +236,12 @@ void sendMessageToUser(const std::string& username, const Message& msg) {
                 size_t size;
                 msg.serialize(buffer, size);
                 
-                // Protocole: En-tête "MSG:" suivi des données binaires du message
+                // Protocole: En-tête "MSG:" + données sérialisées, le tout avec préfixe de longueur
                 std::string header = "MSG:";
-                SocketUtils::sendData(user.socket, header.c_str(), header.length());
-                SocketUtils::sendData(user.socket, buffer, size);
+                std::vector<char> fullMessage(header.begin(), header.end());
+                fullMessage.insert(fullMessage.end(), buffer, buffer + size);
+                
+                SocketUtils::sendWithLength(user.socket, fullMessage.data(), fullMessage.size());
                 
             } catch (const std::exception& e) {
                 writeLog("Échec d'envoi à " + username + ": " + std::string(e.what()));
@@ -214,9 +266,12 @@ void broadcastMessage(const Message& msg) {
                 size_t size;
                 msg.serialize(buffer, size);
                 
+                // Protocole unifié avec préfixe de longueur
                 std::string header = "MSG:";
-                SocketUtils::sendData(user.socket, header.c_str(), header.length());
-                SocketUtils::sendData(user.socket, buffer, size);
+                std::vector<char> fullMessage(header.begin(), header.end());
+                fullMessage.insert(fullMessage.end(), buffer, buffer + size);
+                
+                SocketUtils::sendWithLength(user.socket, fullMessage.data(), fullMessage.size());
                 
             } catch (const std::exception& e) {
                 writeLog("Échec broadcast à " + user.username + ": " + std::string(e.what()));
@@ -272,7 +327,7 @@ void handleCommand(SOCKET clientSocket, const std::string& username, const std::
             // Le client envoie d'abord "SEND:", puis la structure Message sérialisée
             
             char buffer[sizeof(Message)];
-            ssize_t received = SocketUtils::receiveData(clientSocket, buffer, sizeof(buffer));
+            size_t received = SocketUtils::receiveWithLength(clientSocket, buffer, sizeof(buffer));
             
             if (received == sizeof(Message)) {
                 Message msg = Message::deserialize(buffer, received);
@@ -284,11 +339,11 @@ void handleCommand(SOCKET clientSocket, const std::string& username, const std::
                 }
                 
                 std::string response = "OK:Message en file d'attente";
-                SocketUtils::sendData(clientSocket, response.c_str(), response.length());
+                SocketUtils::sendWithLength(clientSocket, response.c_str(), response.length());
                 writeLog("Message ajouté à la queue de " + std::string(msg.from) + " vers " + std::string(msg.to));
             } else {
                 std::string response = "ERROR:Message mal formaté";
-                SocketUtils::sendData(clientSocket, response.c_str(), response.length());
+                SocketUtils::sendWithLength(clientSocket, response.c_str(), response.length());
             }
             
         } else if (command == "LIST_USERS") {
@@ -302,7 +357,7 @@ void handleCommand(SOCKET clientSocket, const std::string& username, const std::
             }
             
             std::string response = "USERS:" + userList;
-            SocketUtils::sendData(clientSocket, response.c_str(), response.length());
+            SocketUtils::sendWithLength(clientSocket, response.c_str(), response.length());
             
         } else if (command == "GET_LOG") {
             // Demande de téléchargement du fichier de log
@@ -312,22 +367,22 @@ void handleCommand(SOCKET clientSocket, const std::string& username, const std::
                                       std::istreambuf_iterator<char>());
                 
                 std::string response = "LOG:" + logContent;
-                SocketUtils::sendData(clientSocket, response.c_str(), response.length());
+                SocketUtils::sendWithLength(clientSocket, response.c_str(), response.length());
             } else {
                 std::string response = "ERROR:Impossible de lire le fichier log";
-                SocketUtils::sendData(clientSocket, response.c_str(), response.length());
+                SocketUtils::sendWithLength(clientSocket, response.c_str(), response.length());
             }
             
         } else if (command == "DISCONNECT") {
             // Demande de déconnexion explicite
             std::string response = "OK:Déconnexion";
-            SocketUtils::sendData(clientSocket, response.c_str(), response.length());
+            SocketUtils::sendWithLength(clientSocket, response.c_str(), response.length());
             writeLog("Déconnexion demandée par " + username);
             
         } else {
             // Commande inconnue
             std::string response = "ERROR:Commande inexistante";
-            SocketUtils::sendData(clientSocket, response.c_str(), response.length());
+            SocketUtils::sendWithLength(clientSocket, response.c_str(), response.length());
             writeLog("Commande invalide de " + username + ": " + command);
         }
         
@@ -335,7 +390,7 @@ void handleCommand(SOCKET clientSocket, const std::string& username, const std::
         writeLog("Erreur traitement commande: " + std::string(e.what()));
         try {
             std::string response = "ERROR:" + std::string(e.what());
-            SocketUtils::sendData(clientSocket, response.c_str(), response.length());
+            SocketUtils::sendWithLength(clientSocket, response.c_str(), response.length());
         } catch (...) {
             // Ignorer les erreurs d'envoi de la réponse d'erreur
         }
@@ -395,14 +450,17 @@ int main() {
             deliveryThreadObj.join();
         }
         
-        // Attendre la fin de tous les threads utilisateurs
+        // Attendre la fin de tous les threads utilisateurs et libérer la mémoire
         {
             std::lock_guard<std::mutex> lock(g_usersMutex);
             for (auto& user : g_connectedUsers) {
-                if (user.handlerThread && user.handlerThread->joinable()) {
-                    user.handlerThread->join();
+                if (user.handlerThread) {
+                    if (user.handlerThread->joinable()) {
+                        user.handlerThread->join();
+                    }
+                    delete user.handlerThread;
+                    user.handlerThread = nullptr;
                 }
-                delete user.handlerThread;
             }
         }
         

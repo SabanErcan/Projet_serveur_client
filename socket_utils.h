@@ -59,6 +59,16 @@ public:
     
     // Vérifie si des données sont disponibles en lecture (non-bloquant avec timeout)
     static bool hasData(SOCKET sock, int timeoutMs = 0);
+    
+    // Envoie des données avec préfixe de longueur (protocole fiable contre fragmentation TCP)
+    static void sendWithLength(SOCKET sock, const char* data, size_t size);
+    
+    // Reçoit des données avec préfixe de longueur (protocole fiable)
+    // Retourne le nombre d'octets reçus, ou 0 si déconnexion
+    static size_t receiveWithLength(SOCKET sock, char* buffer, size_t maxSize);
+    
+    // Reçoit exactement 'size' octets (boucle jusqu'à réception complète)
+    static bool receiveExact(SOCKET sock, char* buffer, size_t size);
 };
 
 #endif // SOCKET_UTILS_H

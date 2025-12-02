@@ -4,6 +4,7 @@
 #include <string>
 #include <cstring>
 #include <stdexcept>
+#include <ctime>
 
 /**
  * Définition des constantes de taille pour les champs du message.
@@ -24,6 +25,7 @@ struct Message {
     char subject[MAX_SUBJECT_SIZE]; // Sujet du message
     char body[MAX_BODY_SIZE];       // Contenu du message
     bool isRead;                    // État de lecture (pour le client)
+    time_t receivedAt;              // Timestamp de réception du message
     
     // Constructeur par défaut (initialise tout à zéro)
     Message();
