@@ -43,7 +43,6 @@ Projet_serveur_client/
 ├── socket_utils.h     # Utilitaires sockets
 ├── socket_utils.cpp   # Implementation sockets
 ├── Makefile           # Compilation Linux
-├── compile.sh         # Script de compilation
 └── README.md          # Ce fichier
 ```
 
@@ -181,4 +180,5 @@ Terminal 3 - Client Bob :
 
 ## Auteur
 
-Projet academique - R3.05 Programmation Systeme
+josua Akono - Saban Ercan - BUT Informatique 2A
+Projet R3.05 Programmation Systeme - 2024/2025

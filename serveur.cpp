@@ -445,11 +445,24 @@ void handleCommand(SOCKET clientSocket, const std::string& username, const std::
             
         } else if (command == "GET_LOG") {
             /* Téléchargement du fichier de log */
-            std::ifstream logFile("server.log", std::ios::binary);
-            if (logFile) {
-                std::string logContent((std::istreambuf_iterator<char>(logFile)),
-                                      std::istreambuf_iterator<char>());
+            /* Utilisation du mutex pour éviter les conflits avec l'écriture */
+            std::string logContent;
+            {
+                std::lock_guard<std::mutex> lock(g_logMutex);
+                /* Forcer l'écriture de toutes les données en attente */
+                g_logFile.flush();
                 
+                /* Lecture du fichier log séparément */
+                std::ifstream logFileRead("server.log", std::ios::in);
+                if (logFileRead.is_open()) {
+                    std::stringstream buffer;
+                    buffer << logFileRead.rdbuf();
+                    logContent = buffer.str();
+                    logFileRead.close();
+                }
+            }
+            
+            if (!logContent.empty()) {
                 std::string response = "LOG:" + logContent;
                 SocketUtils::sendWithLength(clientSocket, response.c_str(), response.length());
             } else {
