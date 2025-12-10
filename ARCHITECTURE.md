@@ -1,6 +1,6 @@
 # Architecture Technique du Projet
 
-## 📐 Diagramme de l'Architecture
+## Diagramme de l'Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -63,7 +63,7 @@
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-## 🔄 Flux de Messages
+## Flux de Messages
 
 ### Envoi d'un Message (Alice → Bob)
 
@@ -120,7 +120,7 @@
    └─► unlock(g_messagesMutex)
 ```
 
-## 🧵 Gestion des Threads
+## Gestion des Threads
 
 ### Serveur - Thread Principal
 ```cpp
@@ -265,7 +265,7 @@ void listenThread() {
 }
 ```
 
-## 🔒 Points de Synchronisation
+## Points de Synchronisation
 
 ### 1. g_connectedUsers (serveur)
 ```
@@ -323,7 +323,7 @@ Utilisé par:
 Évite: Pollution d'affichage pendant composition
 ```
 
-## 📊 Protocole de Communication
+## Protocole de Communication
 
 ### Format des Messages
 
@@ -391,7 +391,7 @@ Serveur:
   - Si dernier client → g_serverRunning = false
 ```
 
-## 🎯 Cas d'Usage Complexes
+## Cas d'Usage Complexes
 
 ### Cas 1: Trois Clients Envoient Simultanément
 
@@ -445,7 +445,7 @@ Résultat:
 - Log créé
 ```
 
-## 🚀 Optimisations Possibles
+## Optimisations Possibles
 
 ### 1. Pool de Threads
 ```cpp
@@ -521,7 +521,7 @@ void sendVariableMessage(SOCKET sock, const Message& msg) {
 }
 ```
 
-## 📝 Métriques et Performances
+## Métriques et Performances
 
 ### Complexités
 

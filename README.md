@@ -2,7 +2,7 @@
 
 Application client/serveur de messagerie instantanée développée en C++ avec sockets TCP/IP et multi-threading.
 
-## 📋 Fonctionnalités
+## Fonctionnalités
 
 ### Serveur
 - **Architecture multi-threads** :
@@ -31,7 +31,7 @@ Application client/serveur de messagerie instantanée développée en C++ avec s
   - Récupérer le fichier log du serveur
   - Déconnexion propre
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 Projet_serveur_client/
@@ -44,7 +44,7 @@ Projet_serveur_client/
 └── README.md              # Ce fichier
 ```
 
-## 📦 Structure Message
+## Structure Message
 
 Chaque message contient :
 - **From** : expéditeur (max 50 caractères)
@@ -53,7 +53,7 @@ Chaque message contient :
 - **Body** : corps du message (max 500 caractères)
 - **isRead** : statut de lecture
 
-## 🔧 Compilation
+## Compilation
 
 ### Windows (MinGW/MSYS2)
 ```powershell
@@ -73,7 +73,7 @@ g++ -std=c++20 -pthread serveur.cpp message.cpp socket_utils.cpp -o serveur
 g++ -std=c++20 -pthread client.cpp message.cpp socket_utils.cpp -o client
 ```
 
-## 🚀 Utilisation
+## Utilisation
 
 ### Démarrer le serveur
 
@@ -103,7 +103,7 @@ Le serveur démarre sur le port **8888** par défaut.
 
 Lors du démarrage, le client demande un nom d'utilisateur.
 
-## 📝 Commandes Client
+## Commandes Client
 
 Une fois connecté, le menu suivant s'affiche :
 
@@ -149,7 +149,7 @@ Télécharge et affiche le contenu complet du fichier `server.log`.
 ### 7. Se déconnecter
 Ferme proprement la connexion au serveur.
 
-## 🧪 Scénarios de Test
+## Scénarios de Test
 
 ### Test 1 : Communication simple entre deux clients
 
@@ -300,7 +300,7 @@ Ferme proprement la connexion au serveur.
 # Commande: 1 (après 30s max)
 ```
 
-## 🔒 Synchronisation
+## Synchronisation
 
 ### Mutex utilisés
 - **g_usersMutex** : protège la liste des utilisateurs connectés
@@ -314,7 +314,7 @@ Ferme proprement la connexion au serveur.
 - **g_clientRunning** : contrôle l'arrêt du client
 - **g_isComposing** : empêche l'affichage de notifications pendant la composition
 
-## ⚠️ Gestion d'Erreurs
+## Gestion d'Erreurs
 
 L'application gère les erreurs suivantes :
 
@@ -327,7 +327,7 @@ L'application gère les erreurs suivantes :
 7. **Échec d'envoi** : exceptions catchées et loguées
 8. **Perte de connexion** : détection par le thread d'écoute
 
-## 📊 Logs Serveur
+## Logs Serveur
 
 Le fichier `server.log` contient :
 - Timestamp de chaque opération
@@ -349,7 +349,7 @@ Exemple :
 [2025-11-24 14:31:00] Message livré de Alice à Bob
 ```
 
-## 🔧 Personnalisation
+## Personnalisation
 
 ### Changer le port
 Modifier la constante dans `serveur.cpp` et `client.cpp` :
@@ -372,7 +372,7 @@ constexpr size_t MAX_SUBJECT_SIZE = 100;
 constexpr size_t MAX_BODY_SIZE = 500;
 ```
 
-## 🐛 Dépannage
+## Dépannage
 
 ### Erreur "Address already in use"
 Le port 8888 est déjà utilisé. Attendez quelques secondes ou changez le port.
@@ -386,7 +386,7 @@ Le serveur attend que tous les clients se déconnectent. Utilisez Ctrl+C en dern
 ### Les messages ne sont pas reçus immédiatement
 C'est normal ! Les messages sont livrés toutes les 30 secondes par le thread de livraison.
 
-## 📚 Concepts C++ Utilisés
+## Concepts C++ Utilisés
 
 - **std::thread** : création et gestion de threads
 - **std::mutex** : synchronisation des accès aux données partagées
@@ -397,11 +397,11 @@ C'est normal ! Les messages sont livrés toutes les 30 secondes par le thread de
 - **std::string** : gestion des chaînes
 - **Sockets système** : socket(), bind(), listen(), accept(), connect(), send(), recv()
 
-## 👨‍💻 Auteur
+## Auteur
 
 Développé pour le cours R3.05 - BUT Informatique 2A  
 Style de programmation système avec C++ moderne
 
-## 📄 Licence
+## Licence
 
 Projet académique - Libre d'utilisation pour l'apprentissage

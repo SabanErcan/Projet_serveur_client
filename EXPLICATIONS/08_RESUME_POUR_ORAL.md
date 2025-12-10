@@ -1,12 +1,10 @@
-# 🎤 RÉSUMÉ POUR TON ORAL
+# RÉSUMÉ POUR L'ORAL
 
-## 📌 Fiche de révision rapide
-
-Ce fichier te donne **tout ce qu'il faut savoir** pour présenter le projet à l'oral.
+## Fiche de révision rapide
 
 ---
 
-## 🎯 Présentation en 30 secondes
+## Présentation en 30 secondes
 
 > "Ce projet est une **application de messagerie instantanée** en C++.
 >
@@ -16,7 +14,7 @@ Ce fichier te donne **tout ce qu'il faut savoir** pour présenter le projet à l
 
 ---
 
-## 📁 Les fichiers du projet
+## Les fichiers du projet
 
 | Fichier | Rôle |
 |---------|------|
@@ -27,7 +25,7 @@ Ce fichier te donne **tout ce qu'il faut savoir** pour présenter le projet à l
 
 ---
 
-## 🏗️ Architecture globale
+## Architecture globale
 
 ```
 ┌──────────┐     ┌──────────┐     ┌──────────┐
@@ -46,7 +44,7 @@ Ce fichier te donne **tout ce qu'il faut savoir** pour présenter le projet à l
 
 ---
 
-## 🧵 Les threads du projet
+## Les threads du projet
 
 ### Serveur (3 types) :
 1. **Thread principal** → Accepte les connexions
@@ -59,7 +57,7 @@ Ce fichier te donne **tout ce qu'il faut savoir** pour présenter le projet à l
 
 ---
 
-## 🔒 Synchronisation
+## Synchronisation
 
 **Pourquoi ?** Éviter les conflits quand plusieurs threads accèdent aux mêmes données.
 
@@ -73,7 +71,7 @@ mutex g_logMutex;      // Protège le fichier log
 
 ---
 
-## 📨 Structure d'un Message
+## Structure d'un Message
 
 ```cpp
 struct Message {
@@ -90,7 +88,7 @@ struct Message {
 
 ---
 
-## 🔌 Les sockets
+## Les sockets
 
 | Étape | Serveur | Client |
 |-------|---------|--------|
@@ -103,7 +101,7 @@ struct Message {
 
 ---
 
-## 📡 Protocole de communication
+## Protocole de communication
 
 ### Commandes client → serveur :
 - `SEND:` + message → Envoyer un message
@@ -120,7 +118,7 @@ struct Message {
 
 ---
 
-## 📏 Protocole à préfixe de longueur
+## Protocole à préfixe de longueur
 
 **Problème** : TCP peut fragmenter les messages.
 
@@ -136,7 +134,7 @@ struct Message {
 
 ---
 
-## 🔄 Cycle de vie d'un message
+## Cycle de vie d'un message
 
 ```
 1. Alice compose un message pour Bob
@@ -151,7 +149,7 @@ struct Message {
 
 ---
 
-## 📋 Fonctionnalités du client
+## Fonctionnalités du client
 
 | N° | Fonction | Description |
 |----|----------|-------------|
@@ -165,7 +163,7 @@ struct Message {
 
 ---
 
-## 🎯 Points techniques importants
+## Points techniques importants
 
 ### 1. Portabilité Windows/Linux
 ```cpp
@@ -190,7 +188,7 @@ Destinataire = "all" → Message envoyé à tous
 
 ---
 
-## ❓ Questions possibles à l'oral
+## Questions possibles à l'oral
 
 ### Q1 : "Pourquoi utiliser des threads ?"
 > "Pour gérer plusieurs clients simultanément. Sans threads, le serveur ne pourrait traiter qu'un seul client à la fois."
@@ -212,7 +210,7 @@ Destinataire = "all" → Message envoyé à tous
 
 ---
 
-## 📊 Schéma à dessiner au tableau
+## Schéma à dessiner au tableau
 
 ```
 ╔═══════════════════════════════════════════════════════════════╗
@@ -241,7 +239,7 @@ Destinataire = "all" → Message envoyé à tous
 
 ---
 
-## 🏆 Mots-clés à placer
+## Mots-clés à placer
 
 - **Architecture client-serveur**
 - **Sockets TCP/IP**
@@ -256,7 +254,7 @@ Destinataire = "all" → Message envoyé à tous
 
 ---
 
-## ✅ Checklist avant l'oral
+## Checklist avant l'oral
 
 - [ ] Je sais expliquer ce que fait le projet en 30 secondes
 - [ ] Je connais les différents fichiers et leur rôle
@@ -270,10 +268,7 @@ Destinataire = "all" → Message envoyé à tous
 
 ---
 
-## 🎤 Phrase de conclusion pour l'oral
+## Phrase de conclusion pour l'oral
 
 > "En conclusion, ce projet m'a permis de comprendre les concepts fondamentaux de la **programmation système** : la communication réseau avec les **sockets**, la gestion de la concurrence avec les **threads**, et la protection des données partagées avec les **mutex**. C'est une base solide pour développer des applications réseau plus complexes."
 
----
-
-**Bonne chance pour ton oral ! 💪**
